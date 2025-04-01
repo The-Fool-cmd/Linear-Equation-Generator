@@ -107,7 +107,7 @@ def _show_equation_solution():
 
 # --- DearPyGui setup ---
 screen_width, screen_height = _get_screen_size()
-window_width, window_height = int(screen_width * 0.40), int(screen_height * 0.65)
+window_width, window_height = _get_screen_size()
 
 dpg.create_context()
 with dpg.theme() as global_theme:
@@ -118,9 +118,7 @@ with dpg.theme() as global_theme:
 dpg.bind_theme(global_theme)
 
 with dpg.window(label="Equation Generator", tag="main_window", no_resize=True, no_title_bar=True, no_move=True):
-    dpg.add_spacer(height=screen_height // 7)
     with dpg.group(horizontal=True):
-        dpg.add_spacer(width=screen_width // 7)
         with dpg.group(horizontal=False):
             dpg.add_text("Equation Settings", bullet=True)
             dpg.add_spacer(height=5)
@@ -162,8 +160,8 @@ dpg.create_viewport(title='Equation Generator', width=window_width, height=windo
 dpg.set_viewport_resizable(False)
 dpg.setup_dearpygui()
 dpg.show_viewport()
-dpg.set_item_pos("main_window", [0, 0])
 dpg.set_item_width("main_window", window_width)
 dpg.set_item_height("main_window", window_height)
+dpg.set_item_pos("main_window", [0, 0])
 dpg.start_dearpygui()
 dpg.destroy_context()
