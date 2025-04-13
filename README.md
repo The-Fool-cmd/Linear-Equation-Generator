@@ -16,6 +16,7 @@ Built with [Dear PyGui](https://github.com/hoffstadt/dearpygui) and [SymPy](http
 ## 📦 Requirements
 
 - Python 3.8+
+Installed using the setup files provided:
 - [dearpygui](https://pypi.org/project/dearpygui/)
 - [sympy](https://pypi.org/project/sympy/)
 - **Linux only:** `python3-tk` for screen resolution detection
