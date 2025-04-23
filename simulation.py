@@ -1,33 +1,102 @@
 import numpy as np
 import pygame
+import taichi as ti
 
 # Hardcoded constants
-SMOOTHING_LENGTH = 20.0
-REST_DENSITY = 1.0
-GAS_CONSTANT = 200.0
+PRESSURE_CONSTANT = 500000.0  # Reduced gas constant to decrease pressure forces
+CUBIC_SPLINE_CONSTANT = 10.0 # Adjusted constant for cubic spline kernel
+DRAG = 0.995 # Drag coefficient for velocity damping
 
 class SmoothingKernel:
+    """
+    UNSTABLE AS FUCK, DO NOT USE THESE
     @staticmethod
-    def poly6(r, h):
-        if r >= h:
+    def poly6(dst, radius):
+        if dst >= radius:
             return 0.0
-        factor = 315 / (64 * np.pi * h ** 9)
-        return factor * (h ** 2 - r ** 2) ** 3
-
+        factor = 315 / (64 * np.pi * radius ** 9)
+        return factor * (radius ** 2 - dst ** 2) ** 3
+    
     @staticmethod
-    def spiky_gradient(r_vec, h):
-        r = np.linalg.norm(r_vec)
-        if r == 0 or r >= h:
+    def spiky_gradient(r_vec, radius):
+        dst = np.linalg.norm(r_vec)
+        if dst == 0 or dst >= radius:
             return np.zeros(2)
-        factor = -45 / (np.pi * h ** 6)
-        return factor * (h - r) ** 2 * (r_vec / r)
+        factor = -45 / (np.pi * radius ** 6)
+        return factor * (radius - dst) ** 2 * (r_vec / dst)
 
     @staticmethod
-    def viscosity_laplacian(r, h):
-        if r >= h:
+    def viscosity_laplacian(dst, radius):
+        if dst >= radius:
             return 0.0
-        factor = 45 / (np.pi * h ** 6)
-        return factor * (h - r)
+        factor = 45 / (np.pi * radius ** 6)
+        return factor * (radius - dst)
+    """
+    @staticmethod
+    def cubic_spline(dst, radius):
+        value = max(0.0, radius ** 2 - dst ** 2)
+        return value ** 3 / CUBIC_VOLUME * CUBIC_SPLINE_CONSTANT
+
+    @staticmethod
+    def cubic_spline_gradient(r_vec, radius):
+        dst = np.linalg.norm(r_vec)
+        if dst >= radius or dst < 1e-8:  # Avoid division by zero
+            return np.zeros(2)
+        factor = -6 * (radius ** 2 - dst ** 2) ** 2 / CUBIC_VOLUME
+        return factor * (r_vec / dst)
+
+    @staticmethod
+    def cubic_spline_laplacian(dst, radius):
+        if dst >= radius:
+            return 0.0
+        factor = -12 * (radius ** 2 - dst ** 2) / CUBIC_VOLUME
+        return factor * (radius ** 2 - 3 * dst ** 2)
+
+
+# works well atm
+def update_density(particles, h):
+    for i, pi in enumerate(particles):
+        density = 0.0
+        for j, pj in enumerate(particles):
+            r_vec = pi.pos - pj.pos
+            dst = np.linalg.norm(r_vec)
+            if dst >= h:
+                continue
+            dst = np.linalg.norm(r_vec)
+            density += SmoothingKernel.cubic_spline(dst, h)
+        pi.density = density
+
+
+
+def update_pressure(particles):
+    for p in particles:
+        p.pressure = max(0, PRESSURE_CONSTANT * (p.density - REST_DENSITY))
+
+def update_pressure_force(particles, radius):
+    for i, pi in enumerate(particles):
+        force_pressure = np.zeros(2)
+        for j, pj in enumerate(particles):
+            if pi is pj:
+                continue
+            r_vec = pi.pos - pj.pos
+            dst = np.linalg.norm(r_vec)
+            if dst < radius and dst > 0 and pj.density > 1e-5:
+                grad_w = SmoothingKernel.cubic_spline_gradient(r_vec, radius)
+                force_pressure += -0.5 * (pi.pressure + pj.pressure) / pj.density * grad_w
+        pi.force = force_pressure
+
+def update_viscosity_force(particles, radius):
+    for i, pi in enumerate(particles):
+        force_viscosity = np.zeros(2)
+        for j, pj in enumerate(particles):
+            if pi is pj:
+                continue
+            r_vec = pi.pos - pj.pos
+            dst = np.linalg.norm(r_vec)
+            if dst < radius and dst > 0:
+                lap_w = SmoothingKernel.cubic_spline_laplacian(dst, radius)
+                force_viscosity += lap_w * (pj.vel - pi.vel) / pj.density
+        pi.force += force_viscosity
 
 class Particle:
     def __init__(self, x, y, radius=10):
@@ -38,24 +107,49 @@ class Particle:
         self.pressure = 0.0
         self.radius = radius
 
-    def update(self, bounds):
-        self.vel += self.force  # mass = 1
+    def update(self, bounds, dt):
+        self.vel += self.force * dt / self.density  # mass = 1
+        print(self.density)
+        self.vel *= DRAG  # Apply drag to the velocity
         self.pos += self.vel
 
         w, h = bounds
-        if self.pos[0] - self.radius < 0 or self.pos[0] + self.radius > w:
+        if self.pos[0] - self.radius < 0:
+            self.pos[0] = self.radius  # Prevent sticking to the left border
             self.vel[0] *= -1
-        if self.pos[1] - self.radius < 0 or self.pos[1] + self.radius > h:
+        elif self.pos[0] + self.radius > w:
+            self.pos[0] = w - self.radius  # Prevent sticking to the right border
+            self.vel[0] *= -1
+
+        if self.pos[1] - self.radius < 0:
+            self.pos[1] = self.radius  # Prevent sticking to the top border
+            self.vel[1] *= -1
+        elif self.pos[1] + self.radius > h:
+            self.pos[1] = h - self.radius  # Prevent sticking to the bottom border
             self.vel[1] *= -1
 
     def draw(self, surface):
-        # Use hue for density
-        color_intensity = min(255, int(self.density * 255))
-        color = (0, color_intensity, 255)
+        # Map density to a color gradient from red (low density) to blue (high density)
+        max_density = REST_DENSITY * 2  # Use twice the rest density as the upper bound
+        min_density = REST_DENSITY * 0.5  # Use half the rest density as the lower bound
+        normalized_density = (self.density - min_density) / (max_density - min_density)
+        normalized_density = max(0.0, min(1.0, normalized_density))  # Clamp between 0 and 1
+        red = int((1 - normalized_density) * 255)
+        blue = int(normalized_density * 255)
+        color = (red, 0, blue)
         pygame.draw.circle(surface, color, self.pos.astype(int), self.radius)
 
 class ParticleSystem:
-    def __init__(self, count, size, spacing, width, height):
+    def __init__(self, count, radius, spacing, width, height):
+        global SMOOTHING_LENGTH, CUBIC_VOLUME, REST_DENSITY
+        # Adjust smoothing length based on simulation box dimensions and particle count
+        particle_spacing = (width * height / count) ** 0.5
+        SMOOTHING_LENGTH = particle_spacing * 2.0  # tune as needed
+
+        CUBIC_VOLUME = np.pi * SMOOTHING_LENGTH ** 8 / 4.0
+        W0 = (SMOOTHING_LENGTH ** 2) ** 3 / CUBIC_VOLUME
+        REST_DENSITY = 20.0 * W0  # tune as needed
+
         self.particles = []
         self.bounds = (width, height)
         self.h = SMOOTHING_LENGTH
@@ -72,7 +166,7 @@ class ParticleSystem:
             x = start_x + col * spacing
             y = start_y + row * spacing
             if x < width and y < height:
-                self.particles.append(Particle(x, y, radius=size))
+                self.particles.append(Particle(x, y, radius=radius))
 
     def apply_random_kick(self):
         if not self.kick_applied:
@@ -80,36 +174,18 @@ class ParticleSystem:
                 p.vel = np.random.uniform(-1.5, 1.5, size=2)
             self.kick_applied = True
 
-    def update(self):
+    def update(self, time_delta):
         # Step 1: Density estimation
-        for i, pi in enumerate(self.particles):
-            density = 0.0
-            for j, pj in enumerate(self.particles):
-                r_vec = pi.pos - pj.pos
-                r = np.linalg.norm(r_vec)
-                density += SmoothingKernel.poly6(r, self.h)
-            pi.density = density
-
+        update_density(self.particles, self.h)
         # Step 2: Pressure calculation
-        for p in self.particles:
-            p.pressure = GAS_CONSTANT * (p.density - REST_DENSITY)
-
+        update_pressure(self.particles)
         # Step 3: Pressure force calculation
-        for i, pi in enumerate(self.particles):
-            force_pressure = np.zeros(2)
-            for j, pj in enumerate(self.particles):
-                if i == j:
-                    continue
-                r_vec = pi.pos - pj.pos
-                r = np.linalg.norm(r_vec)
-                if r < self.h and r > 0:
-                    grad_w = SmoothingKernel.spiky_gradient(r_vec, self.h)
-                    force_pressure += -0.5 * (pi.pressure + pj.pressure) / pj.density * grad_w
-            pi.force = force_pressure
-
-        # Step 4: Integration
+        update_pressure_force(self.particles, self.h)
+        # Step 4: Viscosity force calculation (not implemented yet)
+        update_viscosity_force(self.particles, self.h)
+        # Step 5: Integration
         for p in self.particles:
-            p.update(self.bounds)
+            p.update(self.bounds, time_delta)
 
     def draw(self, screen):
         for p in self.particles:
