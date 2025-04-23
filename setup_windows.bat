@@ -1,15 +1,6 @@
 @echo off
-echo Creating virtual environment...
 python -m venv venv
-
-echo Activating virtual environment...
 call venv\Scripts\activate
-
-echo Upgrading pip...
-python -m pip install --upgrade pip
-
-echo Installing dependencies...
-pip install pygame==2.6.1 pygame_gui==0.6.3 numpy
-
-echo Running main.py with console output...
-cmd /k python main.py
+pip install --upgrade pip
+pip install -r requirements.txt
+start "" venv\Scripts\pythonw.exe main.py

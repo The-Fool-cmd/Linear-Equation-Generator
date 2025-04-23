@@ -1,5 +1,6 @@
 import numpy as np
 import pygame
+import taichi as ti
 
 # Hardcoded constants
 PRESSURE_CONSTANT = 500000.0  # Reduced gas constant to decrease pressure forces
@@ -108,7 +109,7 @@ class Particle:
 
     def update(self, bounds, dt):
         self.vel += self.force * dt / self.density  # mass = 1
-        # print(self.density)
+        print(self.density)
         self.vel *= DRAG  # Apply drag to the velocity
         self.pos += self.vel
 
@@ -180,7 +181,7 @@ class ParticleSystem:
         update_pressure(self.particles)
         # Step 3: Pressure force calculation
         update_pressure_force(self.particles, self.h)
-        # Step 4: Viscosity force calculation
+        # Step 4: Viscosity force calculation (not implemented yet)
         update_viscosity_force(self.particles, self.h)
         # Step 5: Integration
         for p in self.particles:
