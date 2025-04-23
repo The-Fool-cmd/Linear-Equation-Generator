@@ -2,10 +2,11 @@ import pygame
 import pygame_gui
 from simulation import ParticleSystem
 from ui_console import setup_ui, get_ui_values
+"""
 import cProfile
 import pstats
 import io
-
+"""
 
 pygame.init()
 WINDOW_WIDTH, WINDOW_HEIGHT = 1000, 600

@@ -1,3 +1,6 @@
 @echo off
+echo Activating virtual environment...
 call venv\Scripts\activate
-start "" venv\Scripts\pythonw.exe main.py
+
+echo Running main.py with console output...
+cmd /k python main.py

@@ -10,6 +10,7 @@ def setup_ui(manager, window_width, window_height):
 
     panel = pygame_gui.elements.UIPanel(
         relative_rect=panel_rect,
+        starting_layer_height=1,
         manager=manager,
         object_id="#console_panel"
     )

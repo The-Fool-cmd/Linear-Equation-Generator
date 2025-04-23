@@ -1,3 +1,7 @@
 #!/bin/bash
+set -e  # stop on error
+echo "Activating virtual environment..."
 source venv/bin/activate
-python3 main.py &
+
+echo "Running main.py..."
+python3 main.py
